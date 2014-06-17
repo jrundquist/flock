@@ -5,18 +5,36 @@ window.onresize  = function(){
   }
 }
 
+
+
+
 var birds = [];
 
 
 var Settings = {
-  birdCount: 50,
+  birdCount: 150,
   maxBirdVelocity: 2,
   repulseRadius: 15,
   followRadius: 30,
-  attractRadius: 40,
-  maxForce: 1,
-  birdSize: 3
+  attractRadius: 50,
+  maxForce: 4,
+  birdSize: 2,
+  seperationWeight: 4,
+  alignmentWeight: 2,
+  cohesionWeight: 1
 };
+
+
+var gui = new dat.GUI();
+gui.add(Settings, 'maxBirdVelocity', 0, 5);
+gui.add(Settings, 'repulseRadius', 0, 100);
+gui.add(Settings, 'followRadius', 0, 100);
+gui.add(Settings, 'attractRadius', 0, 100);
+gui.add(Settings, 'seperationWeight', 0, 5);
+gui.add(Settings, 'alignmentWeight', 0, 5);
+gui.add(Settings, 'cohesionWeight', 0, 5);
+gui.add(Settings, 'maxForce', 0, 10);
+gui.add(Settings, 'birdSize', 0, 5);
 
 var Vector = function(c1, c2){
   this.c1 = c1;
@@ -73,14 +91,14 @@ Vector.prototype.limit = function(max){
 }
 
 Vector.prototype.wrap = function(boundsOne, boundsTwo){
-  if ( this.c1 <= boundsOne[0] ){
+  if ( this.c1 < boundsOne[0] ){
     this.c1 += boundsOne[1];
-  } else if ( this.c1 >= boundsOne[1] ){
+  } else if ( this.c1 > boundsOne[1] ){
     this.c1 -= boundsOne[1];
   }
-  if ( this.c2 <= boundsTwo[0] ){
+  if ( this.c2 < boundsTwo[0] ){
     this.c2 += boundsTwo[1];
-  } else if ( this.c2 >= boundsTwo[1] ){
+  } else if ( this.c2 > boundsTwo[1] ){
     this.c2 -= boundsTwo[1];
   }
   return this;
@@ -106,9 +124,9 @@ Bird.prototype.update = function(){
 
 
 Bird.prototype.flock = function(neighbours){
-    var avoid = this.avoid(neighbours),//.multiply(SEPARATION_WEIGHT)
-        alignment = this.align(neighbours),//.multiply(ALIGNMENT_WEIGHT)
-        cohesion = this.cohere(neighbours);//.multiply(COHESION_WEIGHT)
+    var avoid = this.avoid(neighbours).multiply(Settings.seperationWeight),
+        alignment = this.align(neighbours).multiply(Settings.alignmentWeight)
+        cohesion = this.cohere(neighbours).multiply(Settings.cohesionWeight);
     return avoid.add(alignment).add(cohesion);
 }
 
@@ -159,7 +177,7 @@ Bird.prototype.cohere = function(neighbours){
   for (i in neighbours){
     bird = neighbours[i];
     var d = this.location.distance(bird.location)
-    if ( d >= Settings.followRadius && d < Settings.attractRadius  ){
+    if ( d < Settings.attractRadius  ){
       sum.add(bird.location);
       count++;
     }
@@ -178,7 +196,7 @@ Bird.prototype.align = function(neighbours){
   for (i in neighbours){
     bird = neighbours[i];
     d = this.location.distance(bird.location);
-    if ( d < Settings.followRadius && d >= Settings.repulseRadius ){
+    if ( d < Settings.followRadius ){
       mean.add(bird.velocity);
       count++;
     }
@@ -269,9 +287,11 @@ var draw = function(){
 
   ctx.fillStyle = '#000000';
   ctx.beginPath();
+  // ctx.globalAlpha = 0.1;
   ctx.rect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.fill();
   ctx.closePath();
+  // ctx.globalAlpha = 1;
 
   for(var i=0; i<Settings.birdCount; i++){
     if ( birds[i] ){
