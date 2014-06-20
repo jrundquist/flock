@@ -1,18 +1,38 @@
 window.onresize  = function(){
   if ( ctx ) {
-    document.getElementById('canvas').width = window.outerWidth;
-    document.getElementById('canvas').height = window.outerHeight;
+    document.getElementById('canvas').width = window.innerWidth;
+    document.getElementById('canvas').height = window.innerHeight;
   }
+  document.getElementById('canvas').style.width = window.innerWidth+'px';
+  document.getElementById('canvas').style.height = window.innerHeight+'px';
+
+  voronoi = d3.geom.voronoi()
+    .clipExtent([[0, 0], [window.innerWidth, window.innerHeight]])
+    .x(function(d){
+      return d.location.c1;
+    })
+    .y(function(d){
+      return d.location.c2;
+    });
 }
 
 
 
+var voronoi = d3.geom.voronoi()
+    .clipExtent([[0, 0], [window.innerWidth, window.innerHeight]])
+    .x(function(d){
+      return d.location.c1;
+    })
+    .y(function(d){
+      return d.location.c2;
+    });
 
+var voronoiPolygons = [];
 var birds = [];
 
 
 var Settings = {
-  birdCount: 150,
+  birdCount: 300,
   maxBirdVelocity: 2,
   repulseRadius: 15,
   followRadius: 30,
@@ -21,7 +41,10 @@ var Settings = {
   birdSize: 2,
   seperationWeight: 4,
   alignmentWeight: 2,
-  cohesionWeight: 1
+  cohesionWeight: 1,
+  drawVel: true,
+  overlay: 0.5,
+  orig: 0
 };
 
 
@@ -35,6 +58,9 @@ gui.add(Settings, 'alignmentWeight', 0, 5);
 gui.add(Settings, 'cohesionWeight', 0, 5);
 gui.add(Settings, 'maxForce', 0, 10);
 gui.add(Settings, 'birdSize', 0, 5);
+gui.add(Settings, 'drawVel', true);
+gui.add(Settings, 'overlay', 0, 1);
+gui.add(Settings, 'orig', 0, 1);
 
 var Vector = function(c1, c2){
   this.c1 = c1;
@@ -110,7 +136,7 @@ Vector.prototype.distance = function(other){
 
 
 var Bird = function(){
-  this.location = new Vector(Math.random() * window.outerWidth, Math.random() * window.innerHeight);
+  this.location = new Vector(Math.random() * window.innerWidth, Math.random() * window.innerHeight);
   this.velocity = new Vector(Math.random() * -Settings.maxBirdVelocity, Math.random() * Settings.maxBirdVelocity);
   return this;
 }
@@ -137,8 +163,12 @@ Bird.prototype.draw = function(ctx){
   ctx.strokeWidth = "2";
   ctx.beginPath();
   ctx.arc(this.location.c1, this.location.c2, Settings.birdSize, 0, Math.PI * 2);
-  ctx.fill();
   ctx.closePath();
+  ctx.fill();
+
+  if ( !Settings.drawVel ){
+    return;
+  }
   ctx.beginPath();
   ctx.moveTo(this.location.c1, this.location.c2);
   ctx.lineTo(this.location.c1 + this.velocity.c1 * velocityScale, this.location.c2 + this.velocity.c2 * velocityScale);
@@ -258,8 +288,8 @@ Bird.prototype.steerTo = function(target){
 
 
 var init = function(){
-  document.getElementById('canvas').width = window.outerWidth;
-  document.getElementById('canvas').height = window.outerHeight;
+  document.getElementById('canvas').width = window.innerWidth;
+  document.getElementById('canvas').height = window.innerHeight;
   window.ctx = document.getElementById('canvas').getContext('2d')
   for(var i=0; i<Settings.birdCount; i++){
     birds.push(new Bird());
@@ -279,6 +309,38 @@ var update = function(){
     //   }
     // });
   });
+
+  voronoiPolygons = voronoi(birds);
+}
+
+
+var sampleImageAt = function(position){
+
+  var rawX = Math.round(position.c1),
+      rawY = Math.round(position.c2),
+      adjustedX = Math.round((rawX / window.innerWidth) * backgroundImageData.width),
+      adjustedY = Math.round((rawY / window.innerHeight) * backgroundImageData.height),
+      target = ((backgroundImageData.width * adjustedY) + adjustedX) * 4,
+      red = green = blue = count = 0,
+      windowSize = 5;
+
+  for ( var x=Math.max(0, adjustedX-windowSize), maxX=Math.min(backgroundImageData.height, adjustedX+windowSize); x<maxX; x++){
+    for ( var y=Math.max(0, adjustedY-windowSize), maxY=Math.min(backgroundImageData.width, adjustedY+windowSize); y<maxY; y++){
+      index = ((backgroundImageData.width * adjustedY) + adjustedX) * 4;
+      red += backgroundImageData.data[index];
+      green += backgroundImageData.data[index+1];
+      blue += backgroundImageData.data[index+2];
+      count++;
+    }
+  }
+
+
+      // alpha = backgroundImageData.data[index+3];
+
+  return 'rgb('+[red,green,blue].map(function(d){ return Math.round(d/count);}).join(',')+')';
+
+  // console.log(backgroundImageData);
+
 }
 
 
@@ -299,11 +361,57 @@ var draw = function(){
     }
   }
 
+  if ( Settings.overlay > 0 ){
+    ctx.globalAlpha = Settings.overlay;
+    for ( var j=0; j<voronoiPolygons.length; j++){
+      ctx.beginPath();
+      // console.log(sampleImageAt(birds[j].location));
+      ctx.fillStyle = sampleImageAt(birds[j].location);
+      var polygon = voronoiPolygons[j];
+      ctx.moveTo(polygon[0][0], polygon[0][1])
+      for ( var k=1; k<polygon.length; k++){
+        ctx.lineTo(polygon[k][0], polygon[k][1]);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  if ( Settings.orig > 0 ){
+    ctx.globalAlpha = Settings.orig;
+    ctx.drawImage(imageObj, 0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.globalAlpha = 1;
+
+  }
+
   window.requestAnimationFrame(draw);
 }
 
 
+var imageObj = new Image(),
+    backgroundImageData,
+    imageSize = {};
+
+imageObj.onload = function() {
+  var backgroudCanvas = document.createElement("CANVAS");
+  backgroudCanvas.width = backgroudCanvas.style.width = this.width;
+  backgroudCanvas.height = backgroudCanvas.style.height = this.height;
+
+  var backgroundCtx = backgroudCanvas.getContext('2d');
+  backgroundCtx.drawImage(this, 0, 0);
+
+  imageSize['width'] = this.width;
+  imageSize['height'] = this.height;
+
+  backgroundImageData = backgroundCtx.getImageData(0, 0, this.width, this.height);
+
+  console.log(backgroundImageData);
+  init();
+};
+imageObj.src = 'starry-night.jpg';
 
 
 
-init();
+
+
